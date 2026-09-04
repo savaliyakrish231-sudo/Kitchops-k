@@ -1,0 +1,7 @@
+node_modules/
+data/*.db
+data/*.db-journal
+data/.jwtsecret
+data/ADMIN_CREDENTIALS.txt
+.env
+data/STAFF_CREDENTIALS.txt

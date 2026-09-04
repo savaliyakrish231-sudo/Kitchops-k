@@ -1,0 +1,29 @@
+{
+  "name": "kitchops",
+  "version": "1.0.0",
+  "description": "KitchOps — Prep Kitchen Automation System (Phase 1: User Master + Recipe/Yield DB)",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "migrate": "node server/db/migrate.js",
+    "seed:sample": "node server/db/seed-sample.js",
+    "test": "node test/run-tests.js",
+    "test:ui": "node test/ui-smoke.js",
+    "test:all": "node test/run-tests.js && node test/ui-smoke.js",
+    "seed:kitchen": "node server/db/seed-kitchen.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1"
+  }
+}
