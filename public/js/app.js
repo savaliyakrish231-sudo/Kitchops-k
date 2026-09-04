@@ -47,6 +47,15 @@ window.App = (function () {
         { id: 'settings', icon: '⚙', label: 'System Settings', show: () => can('settings.manage'), render: () => Pages.settings() },
       ],
     },
+    {
+      // Untitled group at the foot. Every signed-in person gets this, including
+      // counter staff who have no other page.
+      group: null,
+      className: 'nav-account',
+      items: [
+        { id: 'account', icon: '👤', label: 'Account', show: () => Boolean(state.user), render: () => Pages.account() },
+      ],
+    },
   ];
 
   function visibleItems() {
@@ -58,8 +67,8 @@ window.App = (function () {
     document.getElementById('sidebar').innerHTML = NAV.map((g) => {
       const items = g.items.filter((i) => i.show());
       if (!items.length) return '';
-      return `<div class="nav-group">
-        <div class="nav-group-title">${UI.esc(g.group)}</div>
+      return `<div class="nav-group ${g.className || ''}">
+        ${g.group ? `<div class="nav-group-title">${UI.esc(g.group)}</div>` : ''}
         ${items.map((i) => `
           <button class="nav-item ${i.id === current ? 'active' : ''}" data-page="${i.id}">
             <span class="ni">${i.icon}</span>${UI.esc(i.label)}
@@ -68,24 +77,11 @@ window.App = (function () {
     }).join('');
 
     const sidebar = document.getElementById('sidebar');
-    sidebar.insertAdjacentHTML('beforeend', `
-      <div class="nav-group nav-account">
-        <div class="nav-group-title">Account</div>
-        <button class="nav-item" data-account="password"><span class="ni">🔑</span>Change password</button>
-        <button class="nav-item" data-account="signout"><span class="ni">⏻</span>Sign out</button>
-      </div>`);
 
     document.querySelectorAll('.nav-item[data-page]').forEach((b) => {
       b.onclick = () => {
         location.hash = b.dataset.page;
         sidebar.classList.remove('open');
-      };
-    });
-    sidebar.querySelectorAll('[data-account]').forEach((b) => {
-      b.onclick = () => {
-        sidebar.classList.remove('open');
-        if (b.dataset.account === 'password') changePassword(false);
-        else signOut();
       };
     });
   }
@@ -138,8 +134,6 @@ window.App = (function () {
     state.user = user;
     document.getElementById('loginView').hidden = true;
     document.getElementById('appView').hidden = false;
-    document.getElementById('userChip').innerHTML =
-      `<b>${UI.esc(user.fullName)}</b>${UI.esc(user.roleName)}`;
     renderNav();
     if (!location.hash) location.hash = defaultPage();
     else route();
@@ -222,29 +216,12 @@ window.App = (function () {
       }
     };
 
-    document.getElementById('logoutBtn').onclick = signOut;
-    document.getElementById('passwordBtn').onclick = () => changePassword(false);
-
-    // Appearance toggle — available to every role, on every screen size.
-    const themeBtn = document.getElementById('themeBtn');
-    const paintThemeBtn = () => {
-      const mode = Theme.get();
-      const shown = Theme.resolved();
-      themeBtn.textContent = Theme.LABELS[shown].icon;
-      themeBtn.title = mode === 'system'
-        ? `Appearance: System (currently ${Theme.LABELS[shown].label.toLowerCase()}) — click to switch`
-        : `Appearance: ${Theme.LABELS[mode].label} — click to switch`;
-    };
-    themeBtn.onclick = () => { Theme.toggle(); };
-    Theme.onChange(paintThemeBtn);
-    paintThemeBtn();
+    // Identity, appearance, password and sign out all live on the Account page
+    // now — see js/pages/account.js.
     document.getElementById('navToggle').onclick = () =>
       document.getElementById('sidebar').classList.toggle('open');
 
     window.addEventListener('hashchange', route);
-    Theme.onChange(() => {
-      if ((location.hash.replace('#', '') || '') === 'settings' && state.user) route();
-    });
 
     try {
       const { user } = await API.get('/api/auth/me');
