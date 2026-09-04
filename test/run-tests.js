@@ -781,6 +781,189 @@ async function main() {
     assert(counts.every((n) => n >= 1), 'every section is staffed');
   });
 
+  // ------------------------------------------------- credentials + PIN policy
+  section('Sign-in credentials (bulk login IDs and PINs)');
+
+  let pinUser;
+  await checkAsync('a counter person can be given a numeric PIN', async () => {
+    const created = await admin.post('/api/users', {
+      full_name: 'Pin Cook', username: 'pin.cook', role_code: 'COUNTER_PERSON', password: 'temp1234',
+    });
+    pinUser = created.data.user;
+
+    const r = await admin.post('/api/credentials/bulk', {
+      entries: [{ user_id: pinUser.id, username: 'pincook', secret: '4827' }],
+    });
+    assert(r.data.applied, `bulk save: ${JSON.stringify(r.data.errors || r.data)}`);
+    equal(r.data.handout[0].credentialType, 'PIN', 'stored as a PIN');
+    equal(r.data.handout[0].secret, '4827', 'handout echoes the PIN once');
+    equal(r.data.handout[0].username, 'pincook', 'login ID applied');
+  });
+
+  await checkAsync('the new PIN actually signs in', async () => {
+    const c = client();
+    const me = await c.login('pincook', '4827');
+    equal(me.role, 'COUNTER_PERSON', 'signed in with the PIN');
+  });
+
+  await checkAsync('an admin role is refused a numeric PIN', async () => {
+    const list = await admin.get('/api/users?role=SUPER_ADMIN');
+    const sa = list.data.users[0];
+    const r = await admin.post('/api/credentials/bulk', {
+      entries: [{ user_id: sa.id, secret: '482716' }],
+    });
+    equal(r.status, 422, 'must be refused');
+    assert(r.data.errors.some((e) => e.code === 'PIN_NOT_ALLOWED_FOR_ROLE'),
+      `expected PIN_NOT_ALLOWED_FOR_ROLE, got ${JSON.stringify(r.data.errors)}`);
+  });
+
+  await checkAsync('guessable PINs are rejected', async () => {
+    for (const [pin, why] of [['1111', 'all same'], ['1234', 'sequential'],
+      ['4321', 'reverse sequential'], ['1212', 'repeated pattern']]) {
+      const r = await admin.post('/api/credentials/bulk', {
+        entries: [{ user_id: pinUser.id, secret: pin }],
+      });
+      equal(r.status, 422, `${pin} (${why}) must be refused`);
+      assert(r.data.errors.some((e) => e.code === 'PIN_WEAK'), `${pin} should be flagged weak`);
+    }
+  });
+
+  await checkAsync('a PIN must be 4–6 digits', async () => {
+    for (const pin of ['482', '4827163']) {
+      const r = await admin.post('/api/credentials/bulk', { entries: [{ user_id: pinUser.id, secret: pin }] });
+      equal(r.status, 422, `${pin} must be refused`);
+      assert(r.data.errors.some((e) => e.code === 'PIN_LENGTH'), `${pin} should fail on length`);
+    }
+  });
+
+  await checkAsync('a bad row rejects the WHOLE batch — nobody is half-changed', async () => {
+    const other = await admin.post('/api/users', {
+      full_name: 'Batch Mate', username: 'batch.mate', role_code: 'COUNTER_PERSON', password: 'temp1234',
+    });
+    const r = await admin.post('/api/credentials/bulk', {
+      entries: [
+        { user_id: other.data.user.id, secret: '5913' },   // valid
+        { user_id: pinUser.id, secret: '1111' },           // weak -> kills the batch
+      ],
+    });
+    equal(r.status, 422, 'batch refused');
+    equal(r.data.applied, false, 'nothing applied');
+    // The valid row must NOT have been written.
+    const c = client();
+    const attempt = await c.post('/api/auth/login', { username: 'batch.mate', password: '5913' });
+    equal(attempt.status, 401, 'the valid row in a failed batch was not applied');
+  });
+
+  await checkAsync('a login ID already in use is refused', async () => {
+    const r = await admin.post('/api/credentials/bulk', {
+      entries: [{ user_id: pinUser.id, username: 'counter.two' }],
+    });
+    equal(r.status, 422, 'must be refused');
+    assert(r.data.errors.some((e) => e.code === 'USERNAME_TAKEN'), 'flagged as taken');
+  });
+
+  await checkAsync('the same login ID twice in one batch is refused', async () => {
+    const a = await admin.post('/api/users', {
+      full_name: 'Dup One', username: 'dup.one', role_code: 'COUNTER_PERSON', password: 'temp1234' });
+    const b = await admin.post('/api/users', {
+      full_name: 'Dup Two', username: 'dup.two', role_code: 'COUNTER_PERSON', password: 'temp1234' });
+    const r = await admin.post('/api/credentials/bulk', {
+      entries: [
+        { user_id: a.data.user.id, username: 'sharedid' },
+        { user_id: b.data.user.id, username: 'sharedid' },
+      ],
+    });
+    equal(r.status, 422, 'must be refused');
+    assert(r.data.errors.some((e) => e.code === 'USERNAME_DUPLICATE_IN_BATCH'), 'duplicate detected');
+  });
+
+  await checkAsync('no endpoint ever returns a stored secret', async () => {
+    const listing = await admin.get('/api/credentials');
+    const blob = JSON.stringify(listing.data);
+    assert(!blob.includes('4827'), 'a stored PIN leaked in the credentials listing');
+    assert(!/password_hash|\$2[aby]\$/.test(blob), 'a password hash leaked to the client');
+
+    const users = await admin.get('/api/users');
+    assert(!/password_hash|\$2[aby]\$/.test(JSON.stringify(users.data)), 'hash leaked from the user list');
+  });
+
+  await checkAsync('5 wrong PINs lock the account, and an admin can unlock it', async () => {
+    const c = client();
+    let last;
+    for (let i = 0; i < 5; i++) {
+      last = await c.post('/api/auth/login', { username: 'pincook', password: '9999' });
+      equal(last.status, 401, `attempt ${i + 1} refused`);
+    }
+    // The 5th failure trips the lock; the next attempt is refused as locked.
+    const locked = await c.post('/api/auth/login', { username: 'pincook', password: '4827' });
+    equal(locked.status, 423, 'correct PIN must be refused while locked');
+    assert(/locked/i.test(locked.data.error), 'error should say the account is locked');
+
+    const listing = await admin.get('/api/credentials');
+    const row = listing.data.users.find((u) => u.username === 'pincook');
+    equal(row.locked, true, 'admin sees the lock');
+
+    const unlocked = await admin.post(`/api/credentials/${pinUser.id}/unlock`);
+    equal(unlocked.data.user.locked, false, 'unlocked');
+
+    const ok = await c.post('/api/auth/login', { username: 'pincook', password: '4827' });
+    equal(ok.status, 200, 'sign-in works again after unlocking');
+  });
+
+  await checkAsync('a successful sign-in clears the failure counter', async () => {
+    const c = client();
+    await c.post('/api/auth/login', { username: 'pincook', password: '0000' });
+    await c.login('pincook', '4827');
+    const listing = await admin.get('/api/credentials');
+    equal(listing.data.users.find((u) => u.username === 'pincook').failedAttempts, 0, 'counter reset');
+  });
+
+  await checkAsync('suggested PINs are unique and pass the weak-PIN rules', async () => {
+    const r = await admin.post('/api/credentials/suggest', {});
+    assert(r.data.suggestions.length > 0, 'suggestions returned');
+    const pins = r.data.suggestions.map((s) => s.pin);
+    equal(new Set(pins).size, pins.length, 'suggested PINs are distinct');
+    for (const p of pins) {
+      assert(/^\d{4,6}$/.test(p), `"${p}" is not 4-6 digits`);
+      assert(!/^(\d)\1+$/.test(p), `"${p}" is all one digit`);
+    }
+  });
+
+  await checkAsync('only a user manager may reach the credentials screen', async () => {
+    const cp = client();
+    await cp.login('counter.two', 'counter123');
+    equal((await cp.get('/api/credentials')).status, 403, 'counter person forbidden');
+    equal((await cp.post('/api/credentials/bulk', { entries: [] })).status, 403, 'bulk save forbidden');
+
+    await admin.post('/api/users', {
+      full_name: 'Creds Prep Admin', username: 'creds.pk',
+      role_code: 'PREP_KITCHEN_ADMIN', password: 'credspk123',
+    });
+    const pk = client();
+    await pk.login('creds.pk', 'credspk123');
+    equal((await pk.get('/api/credentials')).status, 403, 'prep kitchen admin forbidden (users.manage only)');
+  });
+
+  await checkAsync('a counter person may switch their own secret to a PIN', async () => {
+    const c = client();
+    await c.login('pincook', '4827');
+    const r = await c.post('/api/auth/change-password', { currentPassword: '4827', newPassword: '7361' });
+    equal(r.status, 200, `change: ${r.data.error}`);
+    equal(r.data.credentialType, 'PIN', 'still a PIN');
+    const again = client();
+    equal((await again.post('/api/auth/login', { username: 'pincook', password: '7361' })).status, 200,
+      'new PIN works');
+  });
+
+  await checkAsync('an admin cannot switch their own secret to a PIN', async () => {
+    const c = client();
+    await c.login('testadmin', 'testadmin123');
+    const r = await c.post('/api/auth/change-password',
+      { currentPassword: 'testadmin123', newPassword: '482716' });
+    equal(r.status, 400, 'must be refused');
+    assert(/cannot use a numeric PIN/i.test(r.data.error), `unexpected message: ${r.data.error}`);
+  });
+
   // ------------------------------------------------------------------ RBAC
   section('Role-based access control (server-enforced)');
 
@@ -869,7 +1052,28 @@ async function main() {
     const bad = await c.post('/api/auth/login', { username: 'counter.two', password: 'wrong' });
     const missing = await c.post('/api/auth/login', { username: 'nobody.here', password: 'wrong' });
     equal(bad.status, 401, 'wrong password refused');
+    equal(bad.status, missing.status, 'identical status for both cases');
     equal(bad.data.error, missing.data.error, 'identical message for both cases');
+  });
+
+  await checkAsync('a locked account is indistinguishable from a wrong guess', async () => {
+    // Lock a real account, then confirm a WRONG guess against it looks exactly
+    // like a guess at a username that does not exist — no enumeration signal.
+    const victim = await admin.post('/api/users', {
+      full_name: 'Lock Probe', username: 'lock.probe', role_code: 'COUNTER_PERSON', password: 'probe123',
+    });
+    const c = client();
+    for (let i = 0; i < 5; i++) await c.post('/api/auth/login', { username: 'lock.probe', password: 'nope' });
+
+    const lockedWrong = await c.post('/api/auth/login', { username: 'lock.probe', password: 'still-wrong' });
+    const missing = await c.post('/api/auth/login', { username: 'nobody.here', password: 'still-wrong' });
+    equal(lockedWrong.status, missing.status, 'same status');
+    equal(lockedWrong.data.error, missing.data.error, 'same message — no lockout signal leaked');
+
+    // Only the holder of the correct secret learns it is locked.
+    const holder = await c.post('/api/auth/login', { username: 'lock.probe', password: 'probe123' });
+    equal(holder.status, 423, 'correct secret reveals the lock');
+    await admin.post(`/api/credentials/${victim.data.user.id}/unlock`);
   });
 
   // -------------------------------------------------------------- sample data

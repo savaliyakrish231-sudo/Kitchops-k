@@ -256,6 +256,9 @@ a { color: var(--brand-text); }
 .nav-item:hover { background: var(--surface-2); color: var(--ink); }
 .nav-item.active { background: var(--brand-soft); color: var(--brand-text); font-weight: 600; }
 .nav-item .ni { width: 16px; text-align: center; opacity: .8; }
+/* Account actions live in the topbar on desktop; the sidebar carries them on
+   phones, where the topbar has no room. */
+.nav-account { display: none; border-top: 1px solid var(--line); padding-top: 12px; }
 .content { padding: 22px 26px 60px; min-width: 0; }
 
 /* ------------------------------------------------------------------ pages */
@@ -470,8 +473,11 @@ fieldset.picker legend { font-size: 12px; font-weight: 650; color: var(--ink-2);
   }
   .sidebar.open { transform: none; }
   .content { padding: 16px 14px 60px; }
+  /* Both account buttons move into the sidebar's Account group here, so they
+     stay reachable instead of disappearing. */
   .topbar-right .btn { display: none; }
   .topbar-right .user-chip { max-width: 150px; }
+  .nav-account { display: block; }
   .page-actions { width: 100%; margin-left: 0; }
 }
 

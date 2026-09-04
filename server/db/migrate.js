@@ -30,13 +30,19 @@ function addColumnIfMissing(table, column, definition) {
 const COLUMN_ADDITIONS = [
   ['users', 'designation', 'TEXT'],
   ['users', 'additional_responsibility', 'TEXT'],
+  ['users', 'credential_type', "TEXT NOT NULL DEFAULT 'PASSWORD'"],
+  ['users', 'failed_attempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['users', 'last_failed_at', 'TEXT'],
+  ['users', 'locked_until', 'TEXT'],
+  ['roles', 'allows_pin', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
+//                                                                          loc stn pin sort
 const ROLES = [
-  ['SUPER_ADMIN',       'Super Admin',        'Full access — all data, settings, cutoff time, user management', 0, 0, 1],
-  ['PREP_KITCHEN_ADMIN','Prep Kitchen Admin', 'View all sheets, manage Station Master, manage recipes, assign persons, override tasks, monitor dashboard', 0, 0, 2],
-  ['LOCATION_MANAGER',  'Location Manager',   'Submit item-wise daily requirements for their location', 1, 0, 3],
-  ['COUNTER_PERSON',    'Counter Person',     'See ONLY their assigned tasks with Machine/Manual colour coding. Mark done.', 0, 1, 4],
+  ['SUPER_ADMIN',       'Super Admin',        'Full access — all data, settings, cutoff time, user management', 0, 0, 0, 1],
+  ['PREP_KITCHEN_ADMIN','Prep Kitchen Admin', 'View all sheets, manage Station Master, manage recipes, assign persons, override tasks, monitor dashboard', 0, 0, 0, 2],
+  ['LOCATION_MANAGER',  'Location Manager',   'Submit item-wise daily requirements for their location', 1, 0, 0, 3],
+  ['COUNTER_PERSON',    'Counter Person',     'See ONLY their assigned tasks with Machine/Manual colour coding. Mark done.', 0, 1, 1, 4],
 ];
 
 const PERMISSIONS = [
@@ -131,12 +137,12 @@ function migrate({ silent = false } = {}) {
   }
 
   for (const r of ROLES) {
-    run(`INSERT INTO roles (code, name, description, needs_location, needs_station, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?)
+    run(`INSERT INTO roles (code, name, description, needs_location, needs_station, allows_pin, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(code) DO UPDATE SET
            name = excluded.name, description = excluded.description,
            needs_location = excluded.needs_location, needs_station = excluded.needs_station,
-           sort_order = excluded.sort_order`, r);
+           allows_pin = excluded.allows_pin, sort_order = excluded.sort_order`, r);
   }
 
   for (const p of PERMISSIONS) {

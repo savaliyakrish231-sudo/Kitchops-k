@@ -1,7 +1,14 @@
 /* App shell: session, permission-aware navigation, hash router.
    Nav hiding is convenience only — every endpoint enforces its own permission. */
 window.App = (function () {
-  const state = { user: null, meta: null };
+  const state = { user: null, meta: null, unsavedWarning: null };
+
+  /**
+   * A page calls this while it holds work that would be lost on sign-out or
+   * navigation (e.g. PINs typed but not yet saved). Cleared on every route
+   * change, so a page only ever speaks for itself.
+   */
+  function setUnsavedWarning(message) { state.unsavedWarning = message || null; }
 
   const can = (code) => Boolean(state.user && state.user.permissions.includes(code));
   const canAny = (...codes) => codes.some(can);
@@ -36,6 +43,7 @@ window.App = (function () {
       group: 'Administration',
       items: [
         { id: 'users', icon: '👤', label: 'User Master', show: () => can('users.view'), render: () => Pages.users() },
+        { id: 'credentials', icon: '🔑', label: 'Sign-in Credentials', show: () => can('users.manage'), render: () => Pages.credentials() },
         { id: 'settings', icon: '⚙', label: 'System Settings', show: () => can('settings.manage'), render: () => Pages.settings() },
       ],
     },
@@ -59,10 +67,25 @@ window.App = (function () {
       </div>`;
     }).join('');
 
-    document.querySelectorAll('.nav-item').forEach((b) => {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.insertAdjacentHTML('beforeend', `
+      <div class="nav-group nav-account">
+        <div class="nav-group-title">Account</div>
+        <button class="nav-item" data-account="password"><span class="ni">🔑</span>Change password</button>
+        <button class="nav-item" data-account="signout"><span class="ni">⏻</span>Sign out</button>
+      </div>`);
+
+    document.querySelectorAll('.nav-item[data-page]').forEach((b) => {
       b.onclick = () => {
         location.hash = b.dataset.page;
-        document.getElementById('sidebar').classList.remove('open');
+        sidebar.classList.remove('open');
+      };
+    });
+    sidebar.querySelectorAll('[data-account]').forEach((b) => {
+      b.onclick = () => {
+        sidebar.classList.remove('open');
+        if (b.dataset.account === 'password') changePassword(false);
+        else signOut();
       };
     });
   }
@@ -77,12 +100,17 @@ window.App = (function () {
     const item = visibleItems().find((i) => i.id === id);
     const content = document.getElementById('content');
 
+    setUnsavedWarning(null);
+    // Render the sidebar BEFORE any early return. A role with no pages of its
+    // own still needs its Account group — on a phone that is its only way out.
+    renderNav();
+
     if (!item) {
-      content.innerHTML = `<div class="note note-warn">This page is not available for your role
-        (${UI.esc(state.user.roleName)}).</div>`;
+      content.innerHTML = `<div class="note note-warn">There is no page available for your role
+        (${UI.esc(state.user.roleName)}) yet. Use <b>Account</b> in the menu to change your
+        password or sign out.</div>`;
       return;
     }
-    renderNav();
     content.innerHTML = UI.spinner();
     try {
       await item.render();
@@ -118,6 +146,32 @@ window.App = (function () {
     if (user.mustChangePassword) {
       setTimeout(() => { changePassword(true); }, 400);
     }
+  }
+
+  /**
+   * Signing out is never immediate — it is one tap away from a phone's back
+   * gesture, and a mis-tap mid-shift means finding the login slip again.
+   */
+  async function signOut() {
+    const usesPin = state.meta?.roles
+      ?.find((r) => r.code === state.user?.role)?.allows_pin === 1;
+
+    const confirmed = await UI.confirmDialog({
+      title: 'Sign out?',
+      confirmLabel: 'Yes, sign out',
+      message: `You are signed in as <b>${UI.esc(state.user.fullName)}</b> (${UI.esc(state.user.roleName)}).
+        ${state.unsavedWarning
+          ? `<br><br><span style="color:var(--danger)"><b>${UI.esc(state.unsavedWarning)}</b></span>`
+          : ''}
+        <br><br>You will need your login ID and ${usesPin ? 'PIN' : 'password'} to sign back in.`,
+    });
+    if (!confirmed) return;
+
+    try { await API.post('/api/auth/logout'); } catch { /* sign out locally regardless */ }
+    setUnsavedWarning(null);
+    location.hash = '';
+    showLogin();
+    UI.toast('Signed out.');
   }
 
   function showLogin() {
@@ -168,11 +222,7 @@ window.App = (function () {
       }
     };
 
-    document.getElementById('logoutBtn').onclick = async () => {
-      await API.post('/api/auth/logout');
-      location.hash = '';
-      showLogin();
-    };
+    document.getElementById('logoutBtn').onclick = signOut;
     document.getElementById('passwordBtn').onclick = () => changePassword(false);
 
     // Appearance toggle — available to every role, on every screen size.
@@ -206,7 +256,7 @@ window.App = (function () {
   }
 
   return {
-    state, can, canAny, route, refreshMeta, stations, locations, stationById,
+    state, can, canAny, route, refreshMeta, stations, locations, stationById, setUnsavedWarning, signOut,
     init, changePassword, get user() { return state.user; }, get meta() { return state.meta; },
   };
 })();

@@ -79,7 +79,7 @@ async function bootSession(baseUrl, username, password) {
   // Load the scripts in the same order as index.html.
   const files = [
     'js/theme.js', 'js/api.js', 'js/ui.js',
-    'js/pages/dashboard.js', 'js/pages/users.js', 'js/pages/stations.js',
+    'js/pages/dashboard.js', 'js/pages/users.js', 'js/pages/credentials.js', 'js/pages/stations.js',
     'js/pages/locations.js', 'js/pages/recipes.js', 'js/pages/counter.js',
     'js/pages/masters.js', 'js/pages/mytasks.js', 'js/app.js',
   ];
@@ -287,7 +287,7 @@ async function main() {
 
   const roles = [
     { label: 'Super Admin', user: 'uiadmin', pass: 'uiadmin123',
-      pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users', 'settings'] },
+      pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users', 'credentials', 'settings'] },
     { label: 'Prep Kitchen Admin', user: 'sample.admin', pass: 'sample123',
       pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users'] },
     { label: 'Location Manager', user: 'sample.manager', pass: 'sample123', pages: [] },
@@ -309,7 +309,7 @@ async function main() {
     // The navigation must only offer pages this role is allowed to open.
     try {
       window.App.route();
-      const navIds = Array.from(window.document.querySelectorAll('.nav-item')).map((b) => b.dataset.page);
+      const navIds = Array.from(window.document.querySelectorAll('.nav-item[data-page]')).map((b) => b.dataset.page);
       const unexpected = navIds.filter((id) => !role.pages.includes(id));
       const missing = role.pages.filter((id) => !navIds.includes(id));
       if (unexpected.length || missing.length) {
@@ -357,6 +357,41 @@ async function main() {
       record('appearance toggle switches and restores', null);
     } catch (err) {
       record('appearance toggle switches and restores', err.message);
+    }
+
+    try {
+      const btn = window.document.getElementById('logoutBtn');
+      if (!btn) throw new Error('no sign-out button');
+
+      // Clicking must NOT sign out on its own — it must raise a confirmation.
+      btn.click();
+      await new Promise((r) => setTimeout(r, 20));
+      const host = window.document.getElementById('modalHost');
+      if (host.hidden) throw new Error('sign-out happened with no confirmation');
+      const text = host.textContent;
+      if (!/sign out/i.test(text)) throw new Error('dialog does not mention signing out');
+      if (!text.includes(session.window.App.state.user.fullName)) {
+        throw new Error('dialog does not say who is signed in');
+      }
+      // Cancelling must leave the session intact.
+      host.querySelector('[data-role=cancel]').click();
+      await new Promise((r) => setTimeout(r, 20));
+      if (!window.document.getElementById('appView').hidden === false) { /* still in app */ }
+      if (!window.App.state.user) throw new Error('cancelling still signed the user out');
+      record('sign-out asks first and cancel keeps you in', null);
+    } catch (err) {
+      record('sign-out asks first and cancel keeps you in', err.message);
+    }
+
+    try {
+      // On a phone the topbar buttons are hidden, so the sidebar must carry them.
+      const account = window.document.querySelectorAll('.nav-account [data-account]');
+      const actions = Array.from(account).map((b) => b.dataset.account);
+      if (!actions.includes('signout')) throw new Error('no sign-out in the sidebar Account group');
+      if (!actions.includes('password')) throw new Error('no change-password in the sidebar Account group');
+      record('account actions stay reachable on mobile', null);
+    } catch (err) {
+      record('account actions stay reachable on mobile', err.message);
     }
 
     window.close();

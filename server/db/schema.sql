@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS roles (
   -- which assignment dimensions the Add/Edit User form must show for this role
   needs_location    INTEGER NOT NULL DEFAULT 0,
   needs_station     INTEGER NOT NULL DEFAULT 0,
+  -- Short numeric PINs are acceptable for shop-floor staff, never for roles that
+  -- can reach master data or settings.
+  allows_pin        INTEGER NOT NULL DEFAULT 0,
   sort_order        INTEGER NOT NULL DEFAULT 0
 );
 
@@ -93,6 +96,13 @@ CREATE TABLE IF NOT EXISTS users (
   designation    TEXT,
   -- Extra duties held alongside the section posting (e.g. Hygiene Head).
   additional_responsibility TEXT,
+  -- PASSWORD (admins) or PIN (counter staff on phone browsers). A PIN is short,
+  -- so accounts using one lean on the lockout counters below.
+  credential_type TEXT NOT NULL DEFAULT 'PASSWORD'
+                  CHECK (credential_type IN ('PASSWORD','PIN')),
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  last_failed_at  TEXT,
+  locked_until    TEXT,
   -- PERMANENT employment status. Distinct from daily absence (see staff_attendance).
   is_active      INTEGER NOT NULL DEFAULT 1,
   is_sample      INTEGER NOT NULL DEFAULT 0,

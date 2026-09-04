@@ -25,6 +25,7 @@ function createApp() {
   app.use('/api/auth', require('./routes/auth.routes'));
   app.use('/api/meta', require('./routes/meta.routes'));
   app.use('/api/users', require('./routes/users.routes'));
+  app.use('/api/credentials', require('./routes/credentials.routes'));
   app.use('/api/stations', require('./routes/stations.routes'));
   app.use('/api/locations', require('./routes/locations.routes'));
   app.use('/api/recipes', require('./routes/recipes.routes'));
