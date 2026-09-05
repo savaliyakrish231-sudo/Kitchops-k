@@ -1035,6 +1035,87 @@ async function main() {
     }
   });
 
+  // -------------------------------------------------- a person's own tasks
+  section("My Tasks (a counter person's own work)");
+
+  await checkAsync('a counter person sees the work allocated to them', async () => {
+    // counter.one is rostered to the cutting station, which has items routed to it.
+    const c = client();
+    await c.login('counter.one', 'counter123');
+    const r = await c.get('/api/tasks/mine');
+    equal(r.status, 200, 'own tasks readable');
+    assert(Array.isArray(r.data.stations), 'stations returned');
+    assert(r.data.stations.some((s) => s.station.name === 'Vegetable Cutting'),
+      'their station is listed');
+    // Honest about what it is: a preview, not a generated sheet.
+    equal(r.data.preview, true, 'flagged as a preview, not a generated sheet');
+  });
+
+  await checkAsync('the personal view matches the admin dashboard exactly', async () => {
+    const preview = await admin.get('/api/validation/station-preview');
+    const sheet = preview.data.sheets.find((x) => x.station.name === 'Vegetable Cutting');
+    assert(sheet, 'the dashboard has a sheet for the cutting station');
+
+    // Every person the dashboard names must see the same count on their own page.
+    for (const person of sheet.taskDistribution) {
+      const row = (await admin.get('/api/users')).data.users.find((u) => u.id === person.userId);
+      if (!row) continue;
+      const c = client();
+      const signedIn = await c.post('/api/auth/login',
+        { username: row.username, password: 'counter123' });
+      if (signedIn.status !== 200) continue;   // not one of the seeded counter logins
+      const mine = await c.get('/api/tasks/mine');
+      const forStation = (mine.data.stations || [])
+        .find((x) => x.station.name === 'Vegetable Cutting');
+      const own = forStation ? forStation.tasks.length : 0;
+      equal(own, person.taskCount,
+        `${row.full_name}: dashboard says ${person.taskCount}, their own page says ${own}`);
+    }
+  });
+
+  await checkAsync('one person never receives another person\'s tasks', async () => {
+    const preview = await admin.get('/api/validation/station-preview');
+    const sheet = preview.data.sheets.find((x) => x.station.name === 'Vegetable Cutting');
+    const total = sheet.taskDistribution.reduce((n, p) => n + p.taskCount, 0);
+
+    let seen = 0;
+    const items = new Set();
+    for (const name of ['counter.one', 'counter.two', 'counter.three']) {
+      const c = client();
+      const signedIn = await c.post('/api/auth/login', { username: name, password: 'counter123' });
+      if (signedIn.status !== 200) continue;
+      const mine = await c.get('/api/tasks/mine');
+      for (const st of mine.data.stations || []) {
+        for (const t of st.tasks) { seen++; items.add(t.itemId); }
+      }
+    }
+    // Each item is allocated to exactly one person, so the personal lists must
+    // partition the station's work rather than duplicate it.
+    equal(items.size, seen, 'the same item was handed to more than one person');
+    assert(seen <= total, `people between them see ${seen} tasks but the station only has ${total}`);
+  });
+
+  await checkAsync('an absent person is given no work for that day', async () => {
+    const users = await admin.get('/api/users');
+    const target = users.data.users.find((u) => u.username === 'counter.one');
+    await admin.post('/api/roster/attendance', { user_id: target.id, status: 'ABSENT' });
+
+    const c = client();
+    await c.login('counter.one', 'counter123');
+    const r = await c.get('/api/tasks/mine');
+    equal(r.data.absentToday, true, 'their own page knows they are absent');
+    equal(r.data.taskCount, 0, 'an absent person is allocated nothing');
+
+    await admin.post('/api/roster/attendance', { user_id: target.id, status: 'PRESENT' });
+    const back = await c.get('/api/tasks/mine');
+    equal(back.data.absentToday, false, 'marked present again');
+  });
+
+  await checkAsync('the endpoint requires being signed in', async () => {
+    const anon = client();
+    equal((await anon.get('/api/tasks/mine')).status, 401, 'anonymous callers are refused');
+  });
+
   // ------------------------------------------------------------------ RBAC
   section('Role-based access control (server-enforced)');
 

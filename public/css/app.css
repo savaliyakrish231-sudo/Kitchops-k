@@ -650,6 +650,11 @@ fieldset.picker legend { font-size: 13px; font-weight: 650; color: var(--ink-2);
 .task-card .t-main { flex: 1; min-width: 0; }
 .task-card .t-title { font-weight: 700; font-size: 16px; }
 .task-card .t-meta { font-size: 13px; margin-top: 3px; opacity: .85; }
+/* v10.2 Rule 5 on the phone: the whole row carries the method colour, while the
+   text stays at normal contrast so it is still comfortable to read. */
+.task-card { border-color: var(--line); background: var(--surface); }
+.task-card.is-machine { background: var(--machine-bg); border-color: var(--machine-border); }
+.task-card.is-manual { background: var(--manual-bg); border-color: var(--manual-border); }
 
 
 /* ======================================================================

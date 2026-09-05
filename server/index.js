@@ -30,6 +30,7 @@ function createApp() {
   app.use('/api/locations', require('./routes/locations.routes'));
   app.use('/api/recipes', require('./routes/recipes.routes'));
   app.use('/api/roster', require('./routes/roster.routes'));
+  app.use('/api/tasks', require('./routes/tasks.routes'));
   app.use('/api/validation', require('./routes/validation.routes'));
 
   // Always revalidate before reusing an asset. Browsers otherwise happily serve
