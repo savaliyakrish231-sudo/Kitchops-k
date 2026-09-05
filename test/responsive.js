@@ -284,6 +284,78 @@ const MEASURE = `(() => {
 })()`;
 
 // -------------------------------------------------------------------- main
+
+/**
+ * Opens the tallest form in the app (Add Recipe Item) and checks it is usable:
+ * the dialog must fit the screen, its body must scroll, and the confirm/cancel
+ * buttons must be on screen. A dialog whose footer is pushed below the viewport
+ * is a dead end — you can neither save nor cancel.
+ */
+const MODAL_MEASURE = `(() => {
+  const host = document.getElementById('modalHost');
+  if (!host || host.hidden) return { open: false };
+  const modal = host.querySelector('.modal');
+  const body = host.querySelector('.modal-body');
+  const foot = host.querySelector('.modal-foot');
+  if (!modal || !body || !foot) return { open: false };
+  const vh = window.innerHeight;
+  const m = modal.getBoundingClientRect();
+  const fb = foot.getBoundingClientRect();
+  return {
+    open: true,
+    viewportHeight: vh,
+    modalTop: Math.round(m.top),
+    modalBottom: Math.round(m.bottom),
+    modalOverflows: m.bottom > vh + 1 || m.top < -1,
+    footerBottom: Math.round(fb.bottom),
+    footerVisible: fb.bottom <= vh + 1 && fb.top >= -1,
+    bodyScrollable: body.scrollHeight > body.clientHeight + 1,
+    bodyScrollHeight: body.scrollHeight,
+    bodyClientHeight: body.clientHeight,
+  };
+})()`;
+
+async function modalChecks(client, vp) {
+  try {
+    await evaluate(client, "(location.hash = '#recipes', 1)");
+    await new Promise((r) => setTimeout(r, 500));
+    // Open the longest form in the app.
+    const opened = await evaluate(client, `(() => {
+      const b = document.getElementById('addItem');
+      if (!b) return false;
+      b.click();
+      return true;
+    })()`);
+    if (!opened) { record(`dialog fits the ${vp.name}`, 'could not open the Add Item form'); return; }
+    await new Promise((r) => setTimeout(r, 450));
+
+    const m = await evaluate(client, MODAL_MEASURE);
+    if (!m.open) { record(`dialog fits the ${vp.name}`, 'the dialog did not open'); return; }
+
+    const problems = [];
+    if (m.modalOverflows) {
+      problems.push(`dialog runs off the screen (top ${m.modalTop}, bottom ${m.modalBottom}, viewport ${m.viewportHeight})`);
+    }
+    if (!m.footerVisible) {
+      problems.push(`the Cancel/Save buttons are off screen (footer ends at ${m.footerBottom}, viewport is ${m.viewportHeight}) — the dialog is a dead end`);
+    }
+    if (!m.bodyScrollable) {
+      problems.push(`the form does not scroll (body ${m.bodyScrollHeight}px in a ${m.bodyClientHeight}px box) — fields below the fold are unreachable`);
+    }
+    record(`dialog fits the ${vp.name} and scrolls`, problems.length ? problems.join(' | ') : null);
+
+    // Close it so the next page measurement is not taken through an overlay.
+    await evaluate(client, `(() => {
+      const c = document.querySelector('#modalHost [data-role=cancel]');
+      if (c) c.click();
+      return 1;
+    })()`);
+    await new Promise((r) => setTimeout(r, 350));
+  } catch (err) {
+    record(`dialog fits the ${vp.name} and scrolls`, err.message);
+  }
+}
+
 async function main() {
   const browser = BROWSERS.find((p) => fs.existsSync(p));
   if (!browser) {
@@ -353,6 +425,8 @@ async function main() {
 
         record(`#${page}`, problems.length ? problems.join(' | ') : null);
       }
+
+      await modalChecks(client, vp);
 
       // Scroll position is a real-layout property, so it can only be checked
       // here. An in-place refresh must swap its HTML in one go; if a page ever

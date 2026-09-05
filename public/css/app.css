@@ -587,6 +587,8 @@ fieldset.picker legend { font-size: 13px; font-weight: 650; color: var(--ink-2);
 .modal {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 16px 16px 0 0;
+  /* Clip to the rounded corners AND stop a tall form spilling off-screen. */
+  overflow: hidden;
   width: 100%; max-height: 92dvh;
   box-shadow: var(--shadow-lg);
   display: flex; flex-direction: column;
@@ -597,10 +599,23 @@ fieldset.picker legend { font-size: 13px; font-weight: 650; color: var(--ink-2);
   padding: 14px 16px; border-bottom: 1px solid var(--line);
   display: flex; align-items: center; gap: 10px; flex: none;
 }
+/* The <form> sits between .modal and its body/footer, so it has to carry the
+   flex column through. Without this the body's flex/overflow rules apply to a
+   plain block parent, are ignored, and a long form runs off the bottom of the
+   screen taking the Cancel/Save buttons with it.
+   min-height:0 is required: flex items default to min-height:auto, which
+   refuses to shrink below the content and defeats overflow-y entirely. */
+.modal > form {
+  display: flex; flex-direction: column;
+  flex: 1 1 auto; min-height: 0;
+}
 .modal-head h3 { font-size: 16px; }
 .modal-head .close { margin-left: auto; flex: none; }
 .modal-body {
-  padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto;
+  padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto; min-height: 0;
+  /* Momentum scrolling inside the sheet must not drag the page behind it. */
+  overscroll-behavior: contain;
 }
 /* The confirm/cancel pair must always be reachable without scrolling. */
 .modal-foot {
