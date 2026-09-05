@@ -910,7 +910,10 @@ button.check-step:hover { background: var(--surface-2); }
   table.data td.cell-actions { display: table-cell; padding: 10px 12px; margin: 0; border-top: 0; }
   table.data tr:last-child td { border-bottom: 0; }
   table.data tbody tr:hover { background: var(--surface-3); }
-  table.data td.num { text-align: right; }
+  /* A numeric column right-aligns its VALUES, so its HEADING must move with
+     them. Left-aligned headings over right-aligned figures put "80%" under the
+     next column's title, which reads as if it belongs to that column. */
+  table.data th.num, table.data td.num { text-align: right; }
   tr.row-machine, tr.row-manual { background: transparent; }
   tr.row-machine td, table.data tbody tr.row-machine:hover td { background: var(--machine-bg); }
   tr.row-manual td, table.data tbody tr.row-manual:hover td { background: var(--manual-bg); }

@@ -356,6 +356,53 @@ async function modalChecks(client, vp) {
   }
 }
 
+
+/**
+ * Every column's heading must be aligned the same way as the values beneath it.
+ * A right-aligned figure under a left-aligned heading drifts to the far side of
+ * its column and reads as though it belongs to the next one — which is exactly
+ * how "80%" ended up looking like it sat under UNIT.
+ *
+ * Only meaningful once the real table exists (>= 900px); below that each row is
+ * a card with its own inline label.
+ */
+const ALIGN_MEASURE = `(() => {
+  const problems = [];
+  for (const table of document.querySelectorAll('#content table.data')) {
+    const heads = [...table.querySelectorAll('thead th')];
+    const firstRow = table.querySelector('tbody tr');
+    if (!heads.length || !firstRow) continue;
+    const cells = [...firstRow.children];
+    heads.forEach((th, i) => {
+      const td = cells[i];
+      if (!td) return;
+      const ha = getComputedStyle(th).textAlign;
+      const ca = getComputedStyle(td).textAlign;
+      const norm = (a) => (a === 'start' ? 'left' : a === 'end' ? 'right' : a);
+      if (norm(ha) !== norm(ca)) {
+        problems.push('"' + th.textContent.trim() + '" heading is ' + norm(ha)
+          + ' but its values are ' + norm(ca));
+      }
+    });
+  }
+  return problems.slice(0, 6);
+})()`;
+
+async function alignmentChecks(client, vp) {
+  if (vp.width < 900) return;           // cards below this, no columns to align
+  for (const page of ['dashboard', 'users', 'stations', 'recipes']) {
+    try {
+      await evaluate(client, `(location.hash = '#${page}', 1)`);
+      await new Promise((r) => setTimeout(r, 450));
+      const problems = await evaluate(client, ALIGN_MEASURE);
+      record(`#${page} columns line up with their headings`,
+        problems.length ? problems.join(' | ') : null);
+    } catch (err) {
+      record(`#${page} columns line up with their headings`, err.message);
+    }
+  }
+}
+
 async function main() {
   const browser = BROWSERS.find((p) => fs.existsSync(p));
   if (!browser) {
@@ -426,6 +473,7 @@ async function main() {
         record(`#${page}`, problems.length ? problems.join(' | ') : null);
       }
 
+      await alignmentChecks(client, vp);
       await modalChecks(client, vp);
 
       // Scroll position is a real-layout property, so it can only be checked
