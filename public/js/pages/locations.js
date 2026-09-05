@@ -6,16 +6,13 @@
     const { locations } = await API.get('/api/locations');
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Location Master</h2>
-          <p>Each location submits its own daily item-wise requirement and can carry its own
-             cut type and cut method override in the Recipe DB.</p>
-        </div>
-        <div class="page-actions">
-          ${App.can('locations.manage') ? '<button class="btn btn-primary" id="addLocation">+ Add Location</button>' : ''}
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u2312',
+        title: 'Location Master',
+        lead: 'The outlets that submit daily requirements. Each can override an item\u2019s cut type '
+          + 'and cut method without duplicating the recipe.',
+        actions: App.can('locations.manage') ? '<button class="btn btn-primary" id="addLocation">+ Add Location</button>' : '',
+      })}
 
       <div class="card">
         <div class="card-head"><h3>Locations</h3></div>
@@ -27,7 +24,9 @@
         entry</b> for any location that must always use item-wise entry only.
       </div>`;
 
-    document.getElementById('addLocation')?.addEventListener('click', () => openForm(null));
+    const openAdd = () => openForm(null);
+    document.getElementById('addLocation')?.addEventListener('click', openAdd);
+    document.getElementById('addLocationEmpty')?.addEventListener('click', openAdd);
     content.querySelectorAll('[data-act]').forEach((btn) => {
       btn.onclick = () => {
         const l = locations.find((x) => x.id === Number(btn.dataset.id));
@@ -60,7 +59,14 @@
           ${manage ? `<button class="btn btn-sm btn-ghost" data-act="delete" data-id="${l.id}">Delete</button>` : ''}
         </div>`,
       },
-    ], locations, 'No locations yet. Add your outlets to begin.');
+    ], locations, UI.emptyState({
+      icon: '\u2312',
+      title: 'No locations yet',
+      body: 'Add the outlets that send in daily requirements. Per-location cut overrides in the '
+        + 'Recipe DB depend on these.',
+      actionLabel: manage ? '+ Add the first location' : null,
+      actionId: 'addLocationEmpty',
+    }));
   }
 
   function openForm(location) {

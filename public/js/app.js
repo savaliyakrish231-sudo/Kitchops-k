@@ -81,20 +81,40 @@ window.App = (function () {
     document.querySelectorAll('.nav-item[data-page]').forEach((b) => {
       b.onclick = () => {
         location.hash = b.dataset.page;
-        sidebar.classList.remove('open');
+        closeNav();
       };
     });
   }
+
+  /**
+   * The phone navigation drawer. Opening it dims and locks the page behind, so
+   * a stray scroll does not move content the user cannot see. It closes on:
+   * picking a page, tapping the backdrop, Escape, or growing past 900px where
+   * the sidebar becomes permanent.
+   */
+  function setNav(open) {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    sidebar.classList.toggle('open', open);
+    document.getElementById('navBackdrop')?.classList.toggle('open', open);
+    document.body.classList.toggle('nav-open', open);
+    document.getElementById('navToggle')?.setAttribute('aria-expanded', String(open));
+  }
+  const closeNav = () => setNav(false);
 
   function defaultPage() {
     const items = visibleItems();
     return items.length ? items[0].id : 'dashboard';
   }
 
+  // Guards against a slow page finishing after the user has moved on.
+  let routeSeq = 0;
+
   async function route() {
     const id = location.hash.replace('#', '') || defaultPage();
     const item = visibleItems().find((i) => i.id === id);
     const content = document.getElementById('content');
+    const seq = ++routeSeq;
 
     setUnsavedWarning(null);
     // Render the sidebar BEFORE any early return. A role with no pages of its
@@ -107,12 +127,39 @@ window.App = (function () {
         password or sign out.</div>`;
       return;
     }
-    content.innerHTML = UI.spinner();
+
+    // Only show a placeholder if the load is slow enough to notice. Most
+    // requests finish well inside this, so the usual experience is a clean swap
+    // rather than a flash of "Loading…".
+    const placeholder = setTimeout(() => {
+      if (seq === routeSeq) content.innerHTML = UI.skeleton();
+    }, 180);
+
     try {
       await item.render();
     } catch (e) {
-      content.innerHTML = `<div class="note note-danger"><b>Could not load this page.</b><br>${UI.esc(e.message)}</div>`;
+      if (seq === routeSeq) {
+        content.innerHTML = `<div class="note note-danger"><div><b>Could not load this page.</b><br>${UI.esc(e.message)}</div></div>`;
+      }
+    } finally {
+      clearTimeout(placeholder);
     }
+    if (seq !== routeSeq) return;   // superseded by a newer navigation
+
+    afterRender(content, { toTop: true });
+  }
+
+  /**
+   * Shared post-render work: acknowledge async buttons, and play the entrance
+   * animation. `toTop` distinguishes navigating to a page (start at the top)
+   * from a page refreshing itself in place (keep the reading position).
+   */
+  function afterRender(content, { toTop }) {
+    UI.enhanceButtons(content);
+    content.classList.remove('page-enter');
+    void content.offsetWidth;          // restart the animation
+    content.classList.add('page-enter');
+    if (toTop) window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
   async function refreshMeta() {
@@ -163,6 +210,7 @@ window.App = (function () {
 
     try { await API.post('/api/auth/logout'); } catch { /* sign out locally regardless */ }
     setUnsavedWarning(null);
+    closeNav();
     location.hash = '';
     showLogin();
     UI.toast('Signed out.');
@@ -198,6 +246,7 @@ window.App = (function () {
 
   async function init() {
     Theme.init();
+    enhanceOnRerender();
 
     document.getElementById('loginForm').onsubmit = async (e) => {
       e.preventDefault();
@@ -218,8 +267,29 @@ window.App = (function () {
 
     // Identity, appearance, password and sign out all live on the Account page
     // now — see js/pages/account.js.
-    document.getElementById('navToggle').onclick = () =>
-      document.getElementById('sidebar').classList.toggle('open');
+    const navToggle = document.getElementById('navToggle');
+    navToggle.setAttribute('aria-expanded', 'false');
+    navToggle.setAttribute('aria-controls', 'sidebar');
+    navToggle.onclick = () =>
+      setNav(!document.getElementById('sidebar').classList.contains('open'));
+
+    document.getElementById('navBackdrop').onclick = closeNav;
+
+    // Escape closes the drawer, unless a modal is open and owns the key.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (!document.getElementById('modalHost').hidden) return;
+      closeNav();
+    });
+
+    // Rotating to landscape or resizing past the breakpoint makes the sidebar
+    // permanent, so the drawer state must not linger and lock body scrolling.
+    if (window.matchMedia) {
+      const wide = window.matchMedia('(min-width: 900px)');
+      const onWide = (e) => { if (e.matches) closeNav(); };
+      if (wide.addEventListener) wide.addEventListener('change', onWide);
+      else if (wide.addListener) wide.addListener(onWide);
+    }
 
     window.addEventListener('hashchange', route);
 
@@ -229,6 +299,29 @@ window.App = (function () {
       showApp(user);
     } catch {
       showLogin();
+    }
+  }
+
+  /**
+   * Wraps every page renderer so a page that refreshes itself after an action
+   * re-applies the button enhancements to its newly created buttons.
+   *
+   * Deliberately does NOT touch scroll position. An in-place re-render builds
+   * its HTML after the fetch and swaps it in one go, so the browser already
+   * keeps the reading position; restoring it here would only fight a user who
+   * scrolled while the save was in flight.
+   */
+  function enhanceOnRerender() {
+    for (const [name, render] of Object.entries(Pages)) {
+      if (typeof render !== 'function' || render.__wrapped) continue;
+      const wrapped = async (...args) => {
+        const result = await render(...args);
+        const content = document.getElementById('content');
+        if (content) UI.enhanceButtons(content);
+        return result;
+      };
+      wrapped.__wrapped = true;
+      Pages[name] = wrapped;
     }
   }
 

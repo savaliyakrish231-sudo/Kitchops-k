@@ -12,19 +12,16 @@
     const totalAbsent = data.stations.reduce((n, s) => n + s.absentCount, 0);
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Counter Settings</h2>
-          <p>Assign a fixed list of counter persons to each station. A station takes one person or
-             six — there are no fixed slots. The list changes only on a permanent staff change.</p>
-        </div>
-        <div class="page-actions">
-          <label class="field" style="margin:0">
+      ${UI.pageHead({
+        icon: '\u{1F465}',
+        title: 'Counter Settings',
+        lead: 'A fixed list of people per station — one person or six, there are no slots. The list '
+          + 'changes only on a permanent staff change, which applies from the next day.',
+        actions: `<label class="field" style="margin:0">
             <span>Date</span>
             <input type="date" id="dateInput" value="${UI.esc(data.date)}">
-          </label>
-        </div>
-      </div>
+          </label>`,
+      })}
 
       <div class="grid grid-4" style="margin-bottom:18px">
         <div class="stat"><div class="k">Active stations</div><div class="v">${data.stations.length}</div></div>

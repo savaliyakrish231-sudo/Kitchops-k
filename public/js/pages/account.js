@@ -16,12 +16,11 @@
     const usesPin = user.credentialType === 'PIN';
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Account</h2>
-          <p>Your sign-in details, how KitchOps looks on this device, and signing out.</p>
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u{1F464}',
+        title: 'Account',
+        lead: 'Your sign-in details, how KitchOps looks on this device, and signing out.',
+      })}
 
       ${user.mustChangePassword ? `<div class="note note-warn">
         <b>Your ${usesPin ? 'PIN' : 'password'} was set by an administrator.</b>

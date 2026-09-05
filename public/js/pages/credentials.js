@@ -17,19 +17,16 @@
     const neverSignedIn = users.filter((u) => !u.hasSignedIn && u.isActive);
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Sign-in Credentials</h2>
-          <p>Set the login ID and PIN for every person, then print the handout.
-             Counter staff can use a ${policy.pinMinLength}–${policy.pinMaxLength} digit PIN;
-             administrative roles need a password of at least ${policy.passwordMinLength} characters.</p>
-        </div>
-        <div class="page-actions">
-          <button class="btn" id="genPins">Suggest PINs for counter staff</button>
-          <button class="btn" id="clearDraft">Clear entries</button>
-          <button class="btn btn-primary" id="saveAll">Save changes</button>
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u{1F511}',
+        title: 'Sign-in Credentials',
+        lead: `Set the login ID and PIN for everyone, then print the handout. Counter staff can use a
+          ${policy.pinMinLength}\u2013${policy.pinMaxLength} digit PIN; administrative roles need a
+          password of at least ${policy.passwordMinLength} characters.`,
+        actions: '<button class="btn" id="genPins">Suggest PINs</button>'
+          + '<button class="btn" id="clearDraft">Clear entries</button>'
+          + '<button class="btn btn-primary" id="saveAll">Save changes</button>',
+      })}
 
       <div class="note note-warn">
         <b>Existing PINs and passwords cannot be shown.</b> They are stored hashed, so nobody —
@@ -84,17 +81,16 @@
         render: (u) => `<span class="badge chip-neutral">${UI.esc(u.roleName)}</span>` },
       {
         label: 'Login ID',
-        render: (u) => `<input data-field="username" data-id="${u.id}" value="${UI.esc(u.username)}"
-          style="min-width:130px" autocomplete="off" spellcheck="false">`,
+        render: (u) => `<input class="cred-id" data-field="username" data-id="${u.id}"
+          value="${UI.esc(u.username)}" autocomplete="off" spellcheck="false">`,
       },
       {
         label: 'New PIN / password',
-        render: (u) => `<div style="display:flex;gap:6px;align-items:center">
+        render: (u) => `<div class="cred-secret">
             <input data-field="secret" data-id="${u.id}" type="text" autocomplete="off" spellcheck="false"
               inputmode="${u.allowsPin ? 'numeric' : 'text'}"
-              placeholder="${u.allowsPin ? `e.g. ${policy.pinMinLength} digits` : 'e.g. 6+ characters'}"
-              style="min-width:140px">
-            ${u.allowsPin ? `<button class="btn btn-sm" data-gen="${u.id}" title="Suggest a PIN">↻</button>` : ''}
+              placeholder="${u.allowsPin ? `e.g. ${policy.pinMinLength} digits` : 'e.g. 6+ chars'}">
+            ${u.allowsPin ? `<button class="btn btn-sm" data-gen="${u.id}" title="Suggest a PIN" aria-label="Suggest a PIN">↻</button>` : ''}
           </div>`,
       },
       {

@@ -10,8 +10,11 @@
     "seed:sample": "node server/db/seed-sample.js",
     "test": "node test/run-tests.js",
     "test:ui": "node test/ui-smoke.js",
-    "test:all": "node test/run-tests.js && node test/ui-smoke.js",
-    "seed:kitchen": "node server/db/seed-kitchen.js"
+    "test:all": "node test/run-tests.js && node test/ui-smoke.js && node test/responsive.js",
+    "seed:kitchen": "node server/db/seed-kitchen.js",
+    "test:responsive": "node test/responsive.js",
+    "build:icons": "node tools/build-icons.js",
+    "verify:icons": "node tools/verify-icons.js"
   },
   "engines": {
     "node": ">=22"

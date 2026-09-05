@@ -18,17 +18,14 @@
     const stationOptions = App.stations({ activeOnly: false });
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Recipe Database</h2>
-          <p>Item configuration that drives every station sheet: which station handles an item,
-             its Yield %, cut type and method, peeling, storage type and prep frequency.</p>
-        </div>
-        <div class="page-actions">
-          <button class="btn" id="yieldCalc">Yield calculator</button>
-          ${App.can('recipes.manage') ? '<button class="btn btn-primary" id="addItem">+ Add Item</button>' : ''}
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u{1F955}',
+        title: 'Recipe Database',
+        lead: 'The configuration behind every station sheet: which station handles an item, its '
+          + 'Yield %, cut type and method, peeling, storage type and prep frequency.',
+        actions: '<button class="btn" id="yieldCalc">Yield calculator</button>'
+          + (App.can('recipes.manage') ? '<button class="btn btn-primary" id="addItem">+ Add Item</button>' : ''),
+      })}
 
       ${pendingYield.pending.length ? recalcBanner(pendingYield.pending) : ''}
       ${readiness ? readinessBanner(readiness) : ''}
@@ -64,7 +61,9 @@
         <div class="card-body tight">${renderTable(items)}</div>
       </div>`;
 
-    document.getElementById('addItem')?.addEventListener('click', () => openForm(null, meta));
+    const openAdd = () => openForm(null, meta);
+    document.getElementById('addItem')?.addEventListener('click', openAdd);
+    document.getElementById('addItemEmpty')?.addEventListener('click', openAdd);
     document.getElementById('yieldCalc').onclick = () => openYieldCalculator(items);
 
     document.getElementById('fSearch').oninput = debounce((e) => { filters.search = e.target.value; Pages.recipes(); }, 350);
@@ -200,7 +199,14 @@
           ${manage ? `<button class="btn btn-sm btn-ghost" data-act="toggle" data-id="${i.id}">${Number(i.is_active) === 1 ? 'Deactivate' : 'Activate'}</button>` : ''}
         </div>`,
       },
-    ], items, 'No recipe items yet. Add your first item to begin.');
+    ], items, UI.emptyState({
+      icon: '\u{1F955}',
+      title: 'No recipe items yet',
+      body: 'Every item needs a station, a unit, and — for vegetables and juices — a Yield %. '
+        + 'Sheet generation stays blocked until those are set.',
+      actionLabel: manage ? '+ Add the first item' : null,
+      actionId: 'addItemEmpty',
+    }));
   }
 
   // ---------------------------------------------------------------- form

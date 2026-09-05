@@ -2,7 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- viewport-fit=cover lets the layout paint into the iPhone notch / home-indicator
+     area, which the safe-area insets in app.css then pad around. Zoom is left
+     enabled on purpose: blocking it fails accessibility. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121a2b" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="KitchOps">
+
+<!-- The KO brand mark. The SVG is what modern browsers use in the tab (it is
+     crisp at any size and brightens on dark chrome); the .ico and .png are
+     fallbacks for older browsers and for home-screen shortcuts. Regenerate the
+     bitmaps with `npm run build:icons` after editing favicon.svg. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
 <title>KitchOps — Prep Kitchen Automation</title>
 <script>
   /* No-flash theme bootstrap — must run before the stylesheet paints. */
@@ -46,9 +64,12 @@
     <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
     <span class="brand-mark small">KO</span>
     <strong class="topbar-title">KitchOps</strong>
-    <!-- Identity, appearance, password and sign out live in the sidebar's
-         Account group, so the topbar stays out of the way. -->
+    <!-- Identity, appearance, password and sign out live on the Account page,
+         reached from the sidebar, so the topbar stays out of the way. -->
   </header>
+
+  <!-- Tapping the dimmed page closes the drawer on a phone. -->
+  <div class="nav-backdrop" id="navBackdrop"></div>
 
   <div class="body-grid">
     <nav class="sidebar" id="sidebar"></nav>

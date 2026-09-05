@@ -33,9 +33,12 @@ function seed() {
     const stations = [
       ['SAMPLE Peeling Counter', 'A', '#0ea5e9', 'PEELING', 1],
       ['SAMPLE Vegetable Cutting', 'B', '#22c55e', 'CUTTING', 2],
-      ['SAMPLE Juice Counter', 'C', '#f97316', 'PREP', 3],
+      ['SAMPLE Pasta & Sauce', 'C', '#f97316', 'PREP', 3],
       ['SAMPLE Dry Store Counter', 'D', '#a855f7', 'STORAGE', 4],
       ['SAMPLE Packing Counter', 'E', '#64748b', 'PACKING', 5],
+      // Deliberately left with NO items so the empty-state path renders, and
+      // deliberately contains "&" so escaping bugs there are caught.
+      ['SAMPLE Herbs & Garnish', 'F', '#14b8a6', 'PREP', 6],
     ].map(([name, label, colour, type, sort]) => {
       const r = run(`INSERT INTO stations (name, sheet_label, sheet_colour, type_code, sort_order, is_sample)
                      VALUES (?, ?, ?, ?, ?, 1)`, [name, label, colour, type, sort]);
@@ -87,7 +90,7 @@ function seed() {
       ['SAMPLE Veg A', 'CUTTING', 'Vegetable', 'GM', 'Diced', 'MACHINE', 79, 1, 'MACHINE', 0, 'FRESH', 'DAILY'],
       ['SAMPLE Veg B', 'CUTTING', 'Vegetable', 'GM', 'Sliced', 'MANUAL', 95, 0, null, 0, 'FRESH', 'DAILY'],
       ['SAMPLE Veg C (Whole)', 'CUTTING', 'Vegetable', 'GM', 'Whole', 'MANUAL', 82, 0, null, 1, 'FRESH', 'DAILY'],
-      ['SAMPLE Juice Item', 'PREP', 'Juice', 'ML', null, null, 45, 0, null, 0, 'FRESH', 'DAILY'],
+      ["SAMPLE Chef's Juice & Lime", 'PREP', 'Juice', 'ML', null, null, 45, 0, null, 0, 'FRESH', 'DAILY'],
       ['SAMPLE Dry Item', 'STORAGE', 'Other', 'PCS', null, null, null, 0, null, 0, 'DRY', 'DAILY'],
       ['SAMPLE Frozen Item', 'STORAGE', 'Other', 'GM', null, null, null, 0, null, 0, 'FROZEN', 'DAILY'],
       ['SAMPLE Batch Sauce', 'PREP', 'Other', 'GM', null, null, null, 0, null, 0, 'FRESH', 'BATCH'],

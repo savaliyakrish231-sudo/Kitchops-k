@@ -14,16 +14,13 @@
     const byRole = (code) => users.filter((u) => u.role_code === code).length;
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>User Master</h2>
-          <p>Every person who signs in to KitchOps. Roles decide what each person can reach —
-             permissions are enforced on the server, not just hidden in this interface.</p>
-        </div>
-        <div class="page-actions">
-          ${App.can('users.manage') ? '<button class="btn btn-primary" id="addUser">+ Add User</button>' : ''}
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u{1F464}',
+        title: 'User Master',
+        lead: 'Everyone who signs in. A role decides what each person can reach, and that is '
+          + 'enforced on the server — not just hidden in this interface.',
+        actions: App.can('users.manage') ? '<button class="btn btn-primary" id="addUser">+ Add User</button>' : '',
+      })}
 
       <div class="grid grid-4" style="margin-bottom:18px">
         ${roles.map((r) => `
@@ -61,7 +58,10 @@
         Mark absence from Counter Settings or the row action here.
       </div>`;
 
-    document.getElementById('addUser')?.addEventListener('click', () => openForm(null, meta));
+    const openAdd = () => openForm(null, meta);
+    document.getElementById('addUser')?.addEventListener('click', openAdd);
+    // The empty state offers the same action, so a first-time admin is not stuck.
+    document.getElementById('addUserEmpty')?.addEventListener('click', openAdd);
 
     document.getElementById('fSearch').oninput = debounce((e) => { filters.search = e.target.value; Pages.users(); }, 350);
     document.getElementById('fRole').onchange = (e) => { filters.role = e.target.value; Pages.users(); };
@@ -127,7 +127,14 @@
           ${manage ? `<button class="btn btn-sm btn-ghost" data-act="delete" data-id="${u.id}">Delete</button>` : ''}
         </div>`,
       },
-    ], users, 'No users yet. Add your first user to begin.');
+    ], users, UI.emptyState({
+      icon: '\u{1F464}',
+      title: 'No users yet',
+      body: 'Add the kitchen team here. Counter staff get a station, location managers get an outlet, '
+        + 'and admins get neither.',
+      actionLabel: manage ? '+ Add the first user' : null,
+      actionId: 'addUserEmpty',
+    }));
   }
 
   // -------------------------------------------------------------- add/edit

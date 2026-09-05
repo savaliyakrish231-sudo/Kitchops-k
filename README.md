@@ -19,8 +19,9 @@ npm run migrate           # create/upgrade the schema only
 npm run seed:kitchen      # load the real Central Kitchen Surat org chart
 npm run seed:sample       # add SAMPLE test data (optional)
 npm run seed:sample -- --clear
-npm test                  # 73 API / business-rule tests
-npm run test:ui           # 37 frontend rendering, theme + RBAC tests
+npm test                  # 92 API / business-rule tests
+npm run test:ui           # 63 frontend, mobile, theme + RBAC tests
+npm run test:responsive   # 50 REAL-layout checks in headless Chrome
 npm run test:all          # both
 ```
 
@@ -74,12 +75,46 @@ file once they have been handed out.
 **Prep** is the only Cutting-type section, so it is the only one whose recipe
 items require a cut type and a MACHINE/MANUAL method.
 
+## Mobile-first
+
+v10.2 Rule 7: counter staff open this in a phone browser, no installation. The
+phone layout is therefore the BASE stylesheet, and larger screens are additive
+`min-width` enhancements at 640px, 900px and 1280px. There is no separate
+mobile app and no separate mobile code path — pages are written once.
+
+| Concern | How it is handled |
+|---|---|
+| Wide tables | `UI.table()` writes `data-label` on every cell; under 900px each row renders as a labelled card, so a 12-column Recipe DB row is readable at 360px |
+| iOS zoom on focus | Form controls are 16px on phones — below that Safari zooms the page every time a field is tapped |
+| Touch targets | `--tap: 44px` minimum on every button, nav row and control (Apple 44 / Android 48); desktop tightens up above 900px |
+| Notch / home indicator | `viewport-fit=cover` plus `env(safe-area-inset-*)` padding on the topbar, content and toasts |
+| Navigation | Off-canvas drawer with a dimmed backdrop; closes on tap-outside, Escape, choosing a page, or resizing past 900px |
+| Dialogs | Bottom sheets on phones with a sticky footer, centred modals from 640px |
+| Sideways scroll | `overflow-x: hidden` on body; only individual wide blocks scroll |
+
+Pinch-zoom is deliberately left enabled — disabling it fails accessibility.
+
+### Real-layout testing
+
+Two layers, because they catch different things:
+
+- `test/ui-smoke.js` ("Mobile-first") checks the declared CSS rules and DOM
+  structure. Fast, no browser needed — but jsdom has no layout engine, so it
+  cannot see overflow.
+- `test/responsive.js` drives **headless Chrome over the DevTools Protocol**
+  (no extra dependencies — Node's built-in WebSocket) and measures the rendered
+  box of every element at 320, 360, 414, 768 and 1280px. It fails on horizontal
+  overflow, elements past the right edge, touch targets under 44px, and text
+  under 11px. Skips cleanly if no Chrome/Edge is installed.
+
+The second layer exists because a real overflow bug shipped past the first one.
+
 ## Appearance
 
 Light / Dark / System, chosen per device and stored in `localStorage` — not in the
 database, so one person's choice never restyles the app for the whole kitchen.
-Everyone switches from the ☀/☾ button in the header; Super Admins also get the
-full three-way picker under System Settings.
+Everyone picks theirs on the **Account** page (sidebar, foot of the list);
+Super Admins also get the same three-way picker under System Settings.
 
 Dark mode is a token swap: every colour lives on `:root` in `public/css/app.css`
 and the dark block redefines the same names. A component written against the

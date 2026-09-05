@@ -121,13 +121,29 @@ async function themeChecks(baseUrl) {
   const tokensIn = (text) => new Set([...text.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
 
   try {
-    const light = tokensIn(block(':root {'));
-    const dark = tokensIn(block(':root[data-theme="dark"] {'));
-    // --radius/--shadow/--font are structural and may legitimately not be re-declared.
-    const structural = new Set(['--radius', '--font', '--shadow', '--shadow-lg']);
-    const missing = [...light].filter((t) => !dark.has(t) && !structural.has(t));
+    // Only COLOUR tokens need a dark counterpart. Layout and typography tokens
+    // (--tap, --safe-*, --radius, --font) are the same in both themes, so the
+    // check keys off each token's VALUE rather than a hand-kept exclusion list.
+    const colourTokens = (text) => {
+      const found = new Map();
+      for (const m of text.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
+        const value = m[2].trim();
+        if (/^#[0-9a-f]{3,8}$/i.test(value) || /^(rgb|hsl)a?\(/i.test(value)) found.set(m[1], value);
+      }
+      return found;
+    };
+    const light = colourTokens(block(':root {'));
+    const dark = colourTokens(block(':root[data-theme="dark"] {'));
+    const missing = [...light.keys()].filter((t) => !dark.has(t));
     if (missing.length) throw new Error(`dark palette is missing: ${missing.join(', ')}`);
-    if (dark.size < 30) throw new Error(`dark palette looks too small (${dark.size} tokens)`);
+    if (dark.size < 30) throw new Error(`dark palette looks too small (${dark.size} colours)`);
+
+    // A dark token that is byte-identical to light usually means it was copied
+    // and never adjusted. Backgrounds and text must actually differ.
+    const identical = [...light.entries()]
+      .filter(([t, v]) => dark.get(t) === v && /(--ink|--bg|--surface|--line)/.test(t))
+      .map(([t]) => t);
+    if (identical.length) throw new Error(`unchanged in dark: ${identical.join(', ')}`);
     record(`dark palette redefines every colour token (${dark.size})`, null);
   } catch (err) {
     record('dark palette redefines every colour token', err.message);
@@ -293,9 +309,314 @@ async function themeChecks(baseUrl) {
   }
 }
 
+/**
+ * The shell must PARSE to a usable document. An unterminated HTML comment
+ * silently swallows every element and <script> after it, which renders a blank
+ * page with no console error — the failure this guards against.
+ */
+function shellChecks() {
+  console.log('\n\x1b[1mApp shell (index.html)\x1b[0m');
+  const html = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
+
+  try {
+    const doc = new JSDOM(html).window.document;
+    const required = ['loginView', 'loginForm', 'loginError', 'appView', 'navToggle',
+      'sidebar', 'content', 'toastHost', 'modalHost'];
+    const missing = required.filter((id) => !doc.getElementById(id));
+    if (missing.length) {
+      throw new Error(`missing after parsing: #${missing.join(', #')} `
+        + '— usually an unterminated <!-- comment --> swallowing the rest of the page');
+    }
+    record(`all ${required.length} shell elements survive parsing`, null);
+  } catch (err) {
+    record('all shell elements survive parsing', err.message);
+  }
+
+  try {
+    const doc = new JSDOM(html).window.document;
+    const parsed = [...doc.querySelectorAll('script[src]')].map((t) => t.getAttribute('src'));
+    // Count the raw tags too: if parsing drops some, they were inside a comment.
+    const raw = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+    if (parsed.length !== raw.length) {
+      throw new Error(`${raw.length} script tags written but only ${parsed.length} parse `
+        + `— dropped: ${raw.filter((r) => !parsed.includes(r)).join(', ')}`);
+    }
+    const onDisk = parsed.filter((src) => !fs.existsSync(path.join(PUBLIC, src.replace(/^\//, ''))));
+    if (onDisk.length) throw new Error(`script files missing: ${onDisk.join(', ')}`);
+    record(`all ${parsed.length} scripts parse and exist on disk`, null);
+  } catch (err) {
+    record('all scripts parse and exist on disk', err.message);
+  }
+
+  try {
+    // Every HTML comment must be closed.
+    const opens = (html.match(/<!--/g) || []).length;
+    const closes = (html.match(/-->/g) || []).length;
+    if (opens !== closes) throw new Error(`${opens} "<!--" but ${closes} "-->" — a comment is unterminated`);
+    record('every HTML comment is closed', null);
+  } catch (err) {
+    record('every HTML comment is closed', err.message);
+  }
+}
+
+
+/**
+ * MOBILE-FIRST checks (v10.2 Rule 7 — counter staff use a phone browser).
+ *
+ * jsdom has no layout engine, so this cannot measure rendered pixels. It
+ * verifies the things that actually cause mobile failures and ARE checkable:
+ * the declared rules, the breakpoint direction, and the per-cell labels the
+ * card layout depends on. Real device testing is still needed for feel.
+ */
+function mobileChecks() {
+  console.log('\n\x1b[1mMobile-first\x1b[0m');
+  const css = fs.readFileSync(path.join(PUBLIC, 'css', 'app.css'), 'utf8');
+  const html = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
+  // Match a selector only at the START of a line, so looking up ".btn {" cannot
+  // land inside ".page-actions .btn {" and read the wrong rule.
+  const rule = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = css.match(new RegExp('^' + escaped, 'm'));
+    return m ? css.slice(m.index, css.indexOf('}', m.index)) : null;
+  };
+
+  try {
+    const meta = html.match(/<meta name="viewport" content="([^"]+)"/);
+    if (!meta) throw new Error('no viewport meta tag');
+    const content = meta[1];
+    if (!/width=device-width/.test(content)) throw new Error('viewport lacks width=device-width');
+    if (!/initial-scale=1/.test(content)) throw new Error('viewport lacks initial-scale=1');
+    if (/user-scalable=no|maximum-scale=1/.test(content)) {
+      throw new Error('viewport blocks zoom — pinch-zoom must stay available');
+    }
+    if (!/viewport-fit=cover/.test(content)) throw new Error('viewport lacks viewport-fit=cover for the notch');
+    record('viewport is mobile-correct and still allows pinch-zoom', null);
+  } catch (err) {
+    record('viewport is mobile-correct and still allows pinch-zoom', err.message);
+  }
+
+  try {
+    // Below 16px, iOS Safari zooms the page every time a field is focused.
+    const inputs = rule('input[type=text], input[type=password]');
+    if (!inputs) throw new Error('base input rule not found');
+    const size = inputs.match(/font-size:\s*(\d+(?:\.\d+)?)px/);
+    if (!size) throw new Error('base input rule sets no font-size');
+    if (Number(size[1]) < 16) {
+      throw new Error(`base input font-size is ${size[1]}px — iOS zooms the page below 16px`);
+    }
+    record(`form controls are ${size[1]}px on phones, so iOS does not zoom`, null);
+  } catch (err) {
+    record('form controls are 16px on phones, so iOS does not zoom', err.message);
+  }
+
+  try {
+    // Apple asks 44px, Android 48px. --tap must be at least 44 and actually used.
+    const root = rule(':root {');
+    const tap = root.match(/--tap:\s*(\d+)px/);
+    if (!tap) throw new Error('no --tap token');
+    if (Number(tap[1]) < 44) throw new Error(`--tap is ${tap[1]}px, below the 44px minimum`);
+
+    for (const sel of ['.btn {', '.nav-item {', '.icon-btn {']) {
+      const r = rule(sel);
+      if (!r) throw new Error(`${sel} not found`);
+      if (!/min-(height|width):\s*var\(--tap\)/.test(r)) {
+        throw new Error(`${sel} does not adopt the --tap minimum`);
+      }
+    }
+    // The small variant must shrink text, never the tap area, on a phone.
+    const sm = rule('.btn-sm {');
+    if (/min-height/.test(sm)) throw new Error('.btn-sm overrides the phone tap minimum');
+    record(`interactive targets are at least ${tap[1]}px on phones`, null);
+  } catch (err) {
+    record('interactive targets are at least 44px on phones', err.message);
+  }
+
+  try {
+    // Mobile-first means the base styles are the phone and min-width queries add
+    // to them — not max-width queries taking desktop away.
+    const queries = [...css.matchAll(/@media\s*\(([^)]+)\)/g)].map((m) => m[1].trim());
+    const widthQueries = queries.filter((q) => /width/.test(q));
+    const maxWidth = widthQueries.filter((q) => /max-width/.test(q));
+    if (!widthQueries.length) throw new Error('no responsive breakpoints at all');
+    if (maxWidth.length) throw new Error(`desktop-first max-width queries remain: ${maxWidth.join(', ')}`);
+    const minWidths = widthQueries.map((q) => Number(q.match(/(\d+)px/)[1])).sort((a, b) => a - b);
+    record(`mobile-first: base is the phone, enhanced at ${minWidths.join('px, ')}px`, null);
+  } catch (err) {
+    record('mobile-first: base is the phone, enhanced upward', err.message);
+  }
+
+  try {
+    // A 13-column table is unreadable at 360px, so rows become cards. That
+    // depends on every cell carrying its column name.
+    const uiSrc = fs.readFileSync(path.join(PUBLIC, 'js', 'ui.js'), 'utf8');
+    if (!/data-label="\$\{esc\(c\.label/.test(uiSrc)) {
+      throw new Error('UI.table does not write data-label on cells');
+    }
+    if (!/td::before/.test(css) || !/content:\s*attr\(data-label\)/.test(css)) {
+      throw new Error('CSS does not surface data-label as the card row label');
+    }
+    // And the real table must come back when there is room.
+    const wide = css.slice(css.indexOf('@media (min-width: 900px)'));
+    if (!/table\.data\s*\{[^}]*display:\s*table/.test(wide)) {
+      throw new Error('the real table is never restored on wide screens');
+    }
+    record('wide tables collapse to labelled cards on phones', null);
+  } catch (err) {
+    record('wide tables collapse to labelled cards on phones', err.message);
+  }
+
+  try {
+    // The notch and home indicator must be padded around, not painted under.
+    for (const token of ['--safe-t', '--safe-b']) {
+      if (!css.includes(token + ': env(safe-area-inset')) throw new Error(`${token} is not an env() inset`);
+    }
+    for (const sel of ['.content {', '.topbar {', '.toast-host {']) {
+      const r = rule(sel);
+      if (!/var\(--safe-/.test(r)) throw new Error(`${sel} ignores the safe-area insets`);
+    }
+    record('layout respects iPhone notch and home-indicator insets', null);
+  } catch (err) {
+    record('layout respects iPhone notch and home-indicator insets', err.message);
+  }
+
+  try {
+    // A drawer with no way back is a trap on a phone.
+    if (!/id="navBackdrop"/.test(html)) throw new Error('no backdrop element to tap');
+    const app = fs.readFileSync(path.join(PUBLIC, 'js', 'app.js'), 'utf8');
+    for (const [needle, what] of [
+      ["getElementById('navBackdrop').onclick", 'tapping the backdrop closes it'],
+      ["e.key !== 'Escape'", 'Escape closes it'],
+      ["matchMedia('(min-width: 900px)')", 'resizing past the breakpoint releases it'],
+      ['nav-open', 'the page behind is scroll-locked'],
+    ]) {
+      if (!app.includes(needle)) throw new Error(`drawer: ${what} — missing`);
+    }
+    record('nav drawer closes by backdrop, Escape, navigation and resize', null);
+  } catch (err) {
+    record('nav drawer closes by backdrop, Escape, navigation and resize', err.message);
+  }
+
+  try {
+    // Horizontal page scroll is the classic mobile-layout smell.
+    const body = rule('body {');
+    if (!/overflow-x:\s*hidden/.test(body)) throw new Error('body allows horizontal scrolling');
+    record('the page itself never scrolls sideways', null);
+  } catch (err) {
+    record('the page itself never scrolls sideways', err.message);
+  }
+}
+
+
+/**
+ * Interaction feel: a tap must be acknowledged, and a dialog must be
+ * dismissable the ways people instinctively try.
+ */
+async function interactionChecks(session) {
+  console.log('\n\x1b[1mInteraction\x1b[0m');
+  const { window } = session;
+  const { UI } = window;
+  const host = window.document.getElementById('modalHost');
+  const settle = (ms = 320) => new Promise((r) => setTimeout(r, ms));
+
+  try {
+    UI.modal({ title: 'Escape test', body: '<p>x</p>', submitLabel: 'Go', onSubmit: () => true });
+    if (host.hidden) throw new Error('modal did not open');
+    window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    if (!host.hidden) throw new Error('Escape did not close the dialog');
+    record('a dialog closes on Escape', null);
+  } catch (err) {
+    record('a dialog closes on Escape', err.message);
+  }
+
+  try {
+    UI.modal({ title: 'Backdrop test', body: '<p>x</p>', submitLabel: 'Go', onSubmit: () => true });
+    // A click on the dimmed area itself, not on the dialog.
+    host.onclick({ target: host });
+    await settle();
+    if (!host.hidden) throw new Error('tapping outside did not close the dialog');
+    record('a dialog closes when you tap outside it', null);
+  } catch (err) {
+    record('a dialog closes when you tap outside it', err.message);
+  }
+
+  try {
+    // A click INSIDE the dialog must not dismiss it.
+    UI.modal({ title: 'Inside test', body: '<p>x</p>', submitLabel: 'Go', onSubmit: () => true });
+    const dialog = host.querySelector('.modal');
+    host.onclick({ target: dialog });
+    await settle(120);
+    if (host.hidden) throw new Error('clicking inside the dialog closed it');
+    host.querySelector('[data-role=cancel]').click();
+    await settle();
+    record('clicking inside a dialog does not dismiss it', null);
+  } catch (err) {
+    record('clicking inside a dialog does not dismiss it', err.message);
+  }
+
+  try {
+    // An async handler should mark its button busy until it settles.
+    const btn = window.document.createElement('button');
+    btn.className = 'btn';
+    let release;
+    btn.onclick = () => new Promise((r) => { release = r; });
+    window.document.body.appendChild(btn);
+    UI.enhanceButtons(window.document.body);
+
+    btn.onclick(new window.Event('click'));
+    await settle(20);
+    if (!btn.classList.contains('is-busy')) throw new Error('button was not marked busy');
+    if (!btn.disabled) throw new Error('button stayed clickable while working');
+    release();
+    await settle(30);
+    if (btn.classList.contains('is-busy')) throw new Error('busy state was not cleared');
+    if (btn.disabled) throw new Error('button stayed disabled after finishing');
+    btn.remove();
+    record('an async button shows a spinner and blocks double taps', null);
+  } catch (err) {
+    record('an async button shows a spinner and blocks double taps', err.message);
+  }
+
+  try {
+    // A synchronous handler must not be disabled — that would break the theme
+    // buttons and every plain toggle.
+    const btn = window.document.createElement('button');
+    btn.className = 'btn';
+    let ran = 0;
+    btn.onclick = () => { ran++; };
+    window.document.body.appendChild(btn);
+    UI.enhanceButtons(window.document.body);
+    btn.onclick(new window.Event('click'));
+    if (btn.classList.contains('is-busy') || btn.disabled) {
+      throw new Error('a synchronous handler was treated as pending');
+    }
+    if (ran !== 1) throw new Error('the original handler did not run');
+    btn.remove();
+    record('a synchronous button is left alone', null);
+  } catch (err) {
+    record('a synchronous button is left alone', err.message);
+  }
+
+  try {
+    // The slow-load placeholder must be a skeleton, not a bare word.
+    const html = UI.skeleton(2);
+    if (!/skeleton/.test(html) || (html.match(/class="line/g) || []).length < 4) {
+      throw new Error('skeleton does not mirror the page shape');
+    }
+    record('a slow load shows a shaped skeleton, not "Loading…"', null);
+  } catch (err) {
+    record('a slow load shows a shaped skeleton, not "Loading…"', err.message);
+  }
+}
+
 async function main() {
   migrate({ silent: true });
   seed();
+
+  // Before anything else: a shell that cannot parse makes every later check a
+  // misleading downstream error.
+  shellChecks();
+  mobileChecks();
 
   const server = createApp().listen(0);
   await new Promise((r) => server.once('listening', r));
@@ -344,6 +665,18 @@ async function main() {
           throw new Error(html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200));
         }
         if (html.includes('undefined</')) throw new Error('rendered a literal "undefined" value');
+
+        // Double-escaping shows up as a visible "&amp;" / "&lt;" in the TEXT the
+        // user reads (e.g. a station called "Pasta & Sauce" rendering as
+        // "Pasta &amp; Sauce"). Helpers that escape their own arguments make
+        // this easy to reintroduce, so check the rendered text, not the source.
+        const text = window.document.getElementById('content').textContent;
+        const doubled = ['&amp;', '&lt;', '&gt;', '&quot;', '&#39;'].filter((e) => text.includes(e));
+        if (doubled.length) {
+          const near = text.slice(Math.max(0, text.indexOf(doubled[0]) - 40),
+            text.indexOf(doubled[0]) + 40).replace(/\s+/g, ' ').trim();
+          throw new Error(`double-escaped ${doubled.join(', ')} visible to the user — "…${near}…"`);
+        }
         record(`renders #${page} (${html.length} chars)`, null);
       } catch (err) {
         record(`renders #${page}`, err.message);
@@ -443,6 +776,8 @@ async function main() {
     } catch (err) {
       record('Account page carries identity, appearance, security and sign out', err.message);
     }
+
+    if (role.label === 'Super Admin') await interactionChecks(session);
 
     window.close();
   }

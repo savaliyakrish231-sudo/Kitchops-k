@@ -11,13 +11,12 @@
     const sampleTotal = sample.counts.reduce((n, c) => n + c.count, 0);
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Supporting Masters</h2>
-          <p>The option lists behind the Recipe DB. Both are editable — add whatever cut types and
-             categories the kitchen actually uses.</p>
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u2699',
+        title: 'Supporting Masters',
+        lead: 'The option lists behind the Recipe DB. Both are editable — add whatever cut types and '
+          + 'categories this kitchen actually uses.',
+      })}
 
       <div class="card">
         <div class="card-head"><h3>Cut Types</h3>
@@ -188,10 +187,11 @@
     const shown = Theme.resolved();
 
     content.innerHTML = `
-      <div class="page-head">
-        <div><h2>System Settings</h2>
-          <p>Super Admin only.</p></div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u2699',
+        title: 'System Settings',
+        lead: 'Operational settings for the whole kitchen. Super Admin only.',
+      })}
 
       <div class="card">
         <div class="card-head"><h3>Appearance</h3>

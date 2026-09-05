@@ -12,16 +12,13 @@
     const noItems = active.filter((s) => s.recipe_item_count === 0);
 
     content.innerHTML = `
-      <div class="page-head">
-        <div>
-          <h2>Station Master</h2>
-          <p>Stations are data, not code. Add one here and it appears automatically in the Recipe DB
-             station picker, in Counter Settings and as its own sheet — no development work required.</p>
-        </div>
-        <div class="page-actions">
-          ${App.can('stations.manage') ? '<button class="btn btn-primary" id="addStation">+ Add Station</button>' : ''}
-        </div>
-      </div>
+      ${UI.pageHead({
+        icon: '\u2317',
+        title: 'Station Master',
+        lead: 'Stations are data, not code. Add one here and it appears immediately in the Recipe DB '
+          + 'picker, in Counter Settings, and as its own sheet — with no development work.',
+        actions: App.can('stations.manage') ? '<button class="btn btn-primary" id="addStation">+ Add Station</button>' : '',
+      })}
 
       <div class="grid grid-4" style="margin-bottom:18px">
         <div class="stat"><div class="k">Active stations</div><div class="v">${active.length}</div>
@@ -50,7 +47,9 @@
         station waits for the prep stations. Rename or add stations freely — the rules follow the type.
       </div>`;
 
-    document.getElementById('addStation')?.addEventListener('click', () => openForm(null, meta));
+    const openAdd = () => openForm(null, meta);
+    document.getElementById('addStation')?.addEventListener('click', openAdd);
+    document.getElementById('addStationEmpty')?.addEventListener('click', openAdd);
     content.querySelectorAll('[data-act]').forEach((btn) => {
       btn.onclick = () => {
         const s = stations.find((x) => x.id === Number(btn.dataset.id));
@@ -101,7 +100,14 @@
           ${manage ? `<button class="btn btn-sm btn-ghost" data-act="delete" data-id="${s.id}">Delete</button>` : ''}
         </div>`,
       },
-    ], stations, 'No stations yet. Add your first station to begin.');
+    ], stations, UI.emptyState({
+      icon: '\u2317',
+      title: 'No stations yet',
+      body: 'A station is a section of the kitchen — cutting, dough, beverage. Everything else in '
+        + 'KitchOps points at one, so start here.',
+      actionLabel: manage ? '+ Add the first station' : null,
+      actionId: 'addStationEmpty',
+    }));
   }
 
   function openForm(station, meta) {

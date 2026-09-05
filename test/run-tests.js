@@ -964,6 +964,77 @@ async function main() {
     assert(/cannot use a numeric PIN/i.test(r.data.error), `unexpected message: ${r.data.error}`);
   });
 
+  // ------------------------------------------------------- asset freshness
+  section('Asset caching');
+
+  await checkAsync('the app shell is never cached', async () => {
+    const res = await fetch(baseUrl + '/');
+    const cc = res.headers.get('cache-control') || '';
+    assert(/no-store/.test(cc), `shell must not be cached, got "${cc}"`);
+  });
+
+  await checkAsync('scripts and styles must revalidate before being reused', async () => {
+    for (const asset of ['/js/app.js', '/js/pages/account.js', '/css/app.css']) {
+      const res = await fetch(baseUrl + asset);
+      equal(res.status, 200, `${asset} served`);
+      const cc = res.headers.get('cache-control') || '';
+      assert(/no-cache/.test(cc),
+        `${asset} must revalidate, got "${cc}" — a stale script against a newer shell renders a blank page`);
+      assert(res.headers.get('etag'), `${asset} needs an ETag so revalidation stays cheap`);
+    }
+  });
+
+  await checkAsync('an unchanged asset still revalidates to a cheap 304', async () => {
+    // node:http, not fetch: undici drops If-None-Match, so fetch cannot observe
+    // the revalidation a real browser performs.
+    const http = require('node:http');
+    const url = new URL(baseUrl + '/js/app.js');
+    const request = (headers) => new Promise((resolve) => {
+      http.get({ host: url.hostname, port: url.port, path: url.pathname, headers }, (r) => {
+        r.resume();
+        resolve({ status: r.statusCode, etag: r.headers.etag });
+      });
+    });
+    const first = await request({});
+    equal(first.status, 200, 'asset served');
+    assert(first.etag, 'asset needs an ETag');
+    const second = await request({ 'If-None-Match': first.etag });
+    equal(second.status, 304, 'unchanged asset should return Not Modified');
+  });
+
+  // ------------------------------------------------------------ branding
+  section('Tab icon');
+
+  await checkAsync('the tab icon is served for every browser', async () => {
+    const expected = [
+      ['/favicon.svg', 'image/svg+xml'],
+      ['/favicon.ico', null],                 // servers vary: x-icon vs vnd.microsoft.icon
+      ['/icons/icon-180.png', 'image/png'],
+      ['/icons/icon-192.png', 'image/png'],
+    ];
+    for (const [url, type] of expected) {
+      const res = await fetch(baseUrl + url);
+      equal(res.status, 200, `${url} served`);
+      const len = Number(res.headers.get('content-length') || 0);
+      assert(len > 200, `${url} looks empty (${len} bytes)`);
+      if (type) {
+        const got = res.headers.get('content-type') || '';
+        assert(got.startsWith(type), `${url} served as "${got}", expected ${type}`);
+      }
+    }
+  });
+
+  await checkAsync('the shell declares the icon so the tab is not a blank globe', async () => {
+    const html = await (await fetch(baseUrl + '/')).text();
+    for (const [needle, what] of [
+      ['rel="icon" href="/favicon.svg"', 'the SVG tab icon'],
+      ['/favicon.ico', 'the .ico fallback'],
+      ['rel="apple-touch-icon"', 'the iOS home-screen icon'],
+    ]) {
+      assert(html.includes(needle), `the page does not declare ${what}`);
+    }
+  });
+
   // ------------------------------------------------------------------ RBAC
   section('Role-based access control (server-enforced)');
 
