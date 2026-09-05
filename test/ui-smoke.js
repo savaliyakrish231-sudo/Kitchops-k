@@ -79,7 +79,8 @@ async function bootSession(baseUrl, username, password) {
   // Load the scripts in the same order as index.html.
   const files = [
     'js/theme.js', 'js/api.js', 'js/ui.js',
-    'js/pages/dashboard.js', 'js/pages/users.js', 'js/pages/credentials.js', 'js/pages/stations.js',
+    'js/pages/dashboard.js', 'js/pages/users.js', 'js/pages/credentials.js', 'js/pages/account.js',
+    'js/pages/stations.js',
     'js/pages/locations.js', 'js/pages/recipes.js', 'js/pages/counter.js',
     'js/pages/masters.js', 'js/pages/mytasks.js', 'js/app.js',
   ];
@@ -247,6 +248,21 @@ async function themeChecks(baseUrl) {
   }
 
   try {
+    // Regression guard: a theme change must never wipe the page being used.
+    // A global re-route on theme change previously replaced the content with a
+    // spinner mid-click, destroying the control the user had just pressed.
+    const app = fs.readFileSync(path.join(PUBLIC, 'js', 'app.js'), 'utf8');
+    const reroutes = [...app.matchAll(/Theme\.onChange\(([\s\S]{0,240}?)\)\s*;/g)]
+      .filter((m) => /\broute\s*\(/.test(m[1]));
+    if (reroutes.length) {
+      throw new Error('app.js re-routes on theme change, which blanks the current page');
+    }
+    record('changing the theme does not blank the current page', null);
+  } catch (err) {
+    record('changing the theme does not blank the current page', err.message);
+  }
+
+  try {
     // "System" must not stamp data-theme, or it would stop following the OS.
     const dom = new JSDOM('<!doctype html><html><body></body></html>',
       { url: baseUrl + '/', runScripts: 'outside-only' });
@@ -287,11 +303,11 @@ async function main() {
 
   const roles = [
     { label: 'Super Admin', user: 'uiadmin', pass: 'uiadmin123',
-      pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users', 'credentials', 'settings'] },
+      pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users', 'credentials', 'settings', 'account'] },
     { label: 'Prep Kitchen Admin', user: 'sample.admin', pass: 'sample123',
-      pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users'] },
-    { label: 'Location Manager', user: 'sample.manager', pass: 'sample123', pages: [] },
-    { label: 'Counter Person', user: 'sample.counter1', pass: 'sample123', pages: ['mytasks'] },
+      pages: ['dashboard', 'counter', 'recipes', 'stations', 'locations', 'masters', 'users', 'account'] },
+    { label: 'Location Manager', user: 'sample.manager', pass: 'sample123', pages: ['account'] },
+    { label: 'Counter Person', user: 'sample.counter1', pass: 'sample123', pages: ['mytasks', 'account'] },
   ];
 
   for (const role of roles) {
@@ -343,25 +359,34 @@ async function main() {
     // Every role gets the appearance toggle, including counter staff who cannot
     // open System Settings.
     try {
-      const btn = window.document.getElementById('themeBtn');
-      if (!btn) throw new Error('no theme toggle in the topbar');
+      await renderPage(window, 'account');
+      const picker = window.document.querySelectorAll('#accountTheme button');
+      if (picker.length !== 3) throw new Error(`expected 3 appearance options, got ${picker.length}`);
+      const modes = Array.from(picker).map((b) => b.dataset.mode);
+      for (const m of ['light', 'dark', 'system']) {
+        if (!modes.includes(m)) throw new Error(`missing appearance option "${m}"`);
+      }
       const before = window.Theme.resolved();
-      btn.click();
-      const after = window.Theme.resolved();
-      if (before === after) throw new Error(`toggle did not switch (stayed ${before})`);
-      if (window.document.documentElement.getAttribute('data-theme') !== after) {
+      const other = before === 'dark' ? 'light' : 'dark';
+      window.document.querySelector(`#accountTheme button[data-mode="${other}"]`).click();
+      if (window.Theme.resolved() !== other) throw new Error('appearance did not switch');
+      if (window.document.documentElement.getAttribute('data-theme') !== other) {
         throw new Error('data-theme was not applied to the document');
       }
-      btn.click();
-      if (window.Theme.resolved() !== before) throw new Error('toggling back did not restore');
-      record('appearance toggle switches and restores', null);
+      // The pressed state must follow the choice.
+      const pressed = window.document.querySelector('#accountTheme button[aria-pressed="true"]');
+      if (!pressed || pressed.dataset.mode !== other) throw new Error('pressed state did not update');
+      window.document.querySelector(`#accountTheme button[data-mode="${before}"]`).click();
+      if (window.Theme.resolved() !== before) throw new Error('switching back did not restore');
+      record('appearance picker on the Account page switches and restores', null);
     } catch (err) {
-      record('appearance toggle switches and restores', err.message);
+      record('appearance picker on the Account page switches and restores', err.message);
     }
 
     try {
-      const btn = window.document.getElementById('logoutBtn');
-      if (!btn) throw new Error('no sign-out button');
+      await renderPage(window, 'account');
+      const btn = window.document.getElementById('accountSignOut');
+      if (!btn) throw new Error('no sign-out button on the Account page');
 
       // Clicking must NOT sign out on its own — it must raise a confirmation.
       btn.click();
@@ -385,13 +410,38 @@ async function main() {
 
     try {
       // On a phone the topbar buttons are hidden, so the sidebar must carry them.
-      const account = window.document.querySelectorAll('.nav-account [data-account]');
-      const actions = Array.from(account).map((b) => b.dataset.account);
-      if (!actions.includes('signout')) throw new Error('no sign-out in the sidebar Account group');
-      if (!actions.includes('password')) throw new Error('no change-password in the sidebar Account group');
-      record('account actions stay reachable on mobile', null);
+      // Reachable from the sidebar like any other page.
+      const entry = window.document.querySelector('.nav-account .nav-item[data-page="account"]');
+      if (!entry) throw new Error('no Account entry in the sidebar');
+
+      const html = await renderPage(window, 'account');
+      const user = session.window.App.state.user;
+      for (const [needle, what] of [
+        [user.fullName, 'the signed-in name'],
+        [user.username, 'the login ID'],
+        [user.roleName, 'the role'],
+      ]) {
+        if (!html.includes(needle)) throw new Error(`Account page does not show ${what}`);
+      }
+      if (!window.document.getElementById('accountTheme')) throw new Error('no appearance picker');
+      if (!window.document.getElementById('changeSecret')) throw new Error('no change-password action');
+      if (!window.document.getElementById('accountSignOut')) throw new Error('no sign-out action');
+
+      // A PIN user must be told "PIN", not "password".
+      const usesPin = user.credentialType === 'PIN';
+      if (usesPin && !/PIN/.test(html)) throw new Error('PIN account not described as using a PIN');
+
+      // Nothing account-related may be left stranded in the topbar, and the
+      // Phase 1 chip is gone.
+      if (window.document.querySelector('.topbar #logoutBtn, .topbar #themeBtn, .topbar #userChip')) {
+        throw new Error('account controls still present in the topbar');
+      }
+      if (window.document.querySelector('.topbar .chip-phase')) {
+        throw new Error('Phase 1 chip still present in the topbar');
+      }
+      record('Account page carries identity, appearance, security and sign out', null);
     } catch (err) {
-      record('account actions stay reachable on mobile', err.message);
+      record('Account page carries identity, appearance, security and sign out', err.message);
     }
 
     window.close();

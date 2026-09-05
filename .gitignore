@@ -1,6 +1,8 @@
 node_modules/
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 data/.jwtsecret
 data/ADMIN_CREDENTIALS.txt
 .env

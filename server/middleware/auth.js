@@ -57,7 +57,8 @@ function permissionsForRole(roleCode) {
 function loadPrincipal(userId) {
   const user = get(
     `SELECT u.id, u.full_name, u.username, u.role_code, u.is_active, u.must_change_password,
-            r.name AS role_name
+            u.designation, u.additional_responsibility, u.credential_type, u.last_login_at,
+            r.name AS role_name, r.allows_pin
        FROM users u JOIN roles r ON r.code = u.role_code
       WHERE u.id = ?`, [userId]);
   if (!user || Number(user.is_active) !== 1) return null;
@@ -68,6 +69,13 @@ function loadPrincipal(userId) {
     username: user.username,
     role: user.role_code,
     roleName: user.role_name,
+    designation: user.designation,
+    additionalResponsibility: user.additional_responsibility,
+    // Whether this account signs in with a PIN or a password, and whether its
+    // role is even allowed a PIN. Own-account data only.
+    credentialType: user.credential_type,
+    allowsPin: Number(user.allows_pin) === 1,
+    lastLoginAt: user.last_login_at,
     mustChangePassword: Number(user.must_change_password) === 1,
     permissions: permissionsForRole(user.role_code),
     locationIds: all('SELECT location_id FROM user_locations WHERE user_id = ?', [userId])
